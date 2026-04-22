@@ -19,7 +19,7 @@ async def crear_personaje(jugador_id: str, nombre: str, nick: str, nivel: int,
     """Crea un personaje. Retorna (éxito, mensaje)."""
     await obtener_o_crear_jugador(jugador_id)
     if await obtener_personaje(jugador_id):
-        return False, "Ya tenés un personaje creado. Usá `!actualizar_personaje` para editarlo."
+        return False, "Ya tienes un personaje creado. Usa `!actualizar_personaje` para editarlo."
     try:
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -39,7 +39,7 @@ async def actualizar_personaje(jugador_id: str, **campos) -> tuple[bool, str]:
     Campos válidos: nombre, nick, nivel, clase, raza, link_ficha
     """
     if not await obtener_personaje(jugador_id):
-        return False, "No tenés un personaje creado todavía. Usá `!crear_personaje`."
+        return False, "No tienes un personaje creado todavía. Usa `!crear_personaje`."
 
     campos_validos = {"nombre", "nick", "nivel", "clase", "raza", "link_ficha"}
     actualizaciones = {k: v for k, v in campos.items() if k in campos_validos and v is not None}

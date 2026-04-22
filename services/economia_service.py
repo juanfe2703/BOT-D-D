@@ -2,7 +2,7 @@ from database.db import get_pool
 
 
 async def obtener_o_crear_jugador(user_id: str) -> int:
-    """Devuelve el oro del jugador. Si no existe, lo crea con 100 de oro."""
+    """Devuelve el oro del jugador. Si no existe, lo crea con 1 de oro."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT oro FROM jugadores WHERE id = $1", user_id)
@@ -10,7 +10,7 @@ async def obtener_o_crear_jugador(user_id: str) -> int:
             await conn.execute(
                 "INSERT INTO jugadores (id, oro) VALUES ($1, 100)", user_id
             )
-            return 100
+            return 1
         return row["oro"]
 
 
@@ -24,7 +24,7 @@ async def transferir_oro(emisor_id: str, receptor_id: str, cantidad: int) -> tup
     await obtener_o_crear_jugador(receptor_id)
 
     if emisor_oro < cantidad:
-        return False, f"No tenés suficiente oro. Tenés **{emisor_oro}** 🪙"
+        return False, f"Usted está pobre. Actualmente tiene **{emisor_oro}** 🪙"
 
     pool = await get_pool()
     async with pool.acquire() as conn:

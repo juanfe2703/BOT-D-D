@@ -20,7 +20,7 @@ class Inventario(commands.Cog):
             color=discord.Color.blue()
         )
         if not items:
-            embed.description = "*El inventario está vacío.*"
+            embed.description = "*Está mas vacio que el corazón de Alessio.*"
         else:
             embed.description = "\n".join(f"• **{row['item']}** x{row['cantidad']}" for row in items)
 
@@ -45,7 +45,7 @@ class Inventario(commands.Cog):
             return
         exito, mensaje = await quitar_item(str(miembro.id), item, cantidad)
         if exito:
-            await ctx.send(f"✅ Se quitaron **{cantidad}x {item}** del inventario de {miembro.mention}.")
+            await ctx.send(f"✅ el pinshi admin le quitó **{cantidad}x {item}** del inventario a {miembro.mention}.")
         else:
             await ctx.send(f"❌ {mensaje}")
 
@@ -56,10 +56,10 @@ class Inventario(commands.Cog):
         receptor_id = str(miembro.id)
 
         if emisor_id == receptor_id:
-            await ctx.send("❌ No podés darte ítems a vos mismo.")
+            await ctx.send("❌ Trmposit@ sino >:(")
             return
         if cantidad <= 0:
-            await ctx.send("❌ La cantidad debe ser mayor a 0.")
+            await ctx.send("❌ la sinapsis se fue se sabático cariño (La cantidad debe ser mayor a 0).")
             return
 
         exito, mensaje = await transferir_item(emisor_id, receptor_id, item, cantidad)

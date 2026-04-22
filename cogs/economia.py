@@ -11,7 +11,7 @@ class Economia(commands.Cog):
 
     @commands.command(name="oro", help="Muestra tu cantidad de oro actual.")
     async def oro(self, ctx):
-        """!oro — Muestra cuánto oro tenés."""
+        """!oro — Muestra cuánto oro tienes."""
         cantidad = await obtener_oro(str(ctx.author.id))
         embed = discord.Embed(
             title="💰 Tu Tesoro",
@@ -30,14 +30,14 @@ class Economia(commands.Cog):
             await ctx.send("❌ La cantidad debe ser mayor a 0.")
             return
         if emisor_id == receptor_id:
-            await ctx.send("❌ No podés enviarte oro a vos mismo.")
+            await ctx.send("❌ No papi, eso es ilegal.")
             return
 
         exito, mensaje = await transferir_oro(emisor_id, receptor_id, cantidad)
         if exito:
             embed = discord.Embed(
                 title="💸 Transferencia de Oro",
-                description=f"{ctx.author.mention} le envió **{cantidad} 🪙** a {miembro.mention}",
+                description=f"{ctx.author.mention} le aventó **{cantidad} 🪙** a {miembro.mention}",
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
@@ -63,9 +63,9 @@ class Economia(commands.Cog):
             return
         exito, total = await quitar_oro_admin(str(miembro.id), cantidad)
         if exito:
-            await ctx.send(f"✅ Se quitaron **{cantidad} 🪙** a {miembro.mention}. Total: **{total} 🪙**")
+            await ctx.send(f"✅ el pinshi admin le quitó **{cantidad} 🪙** a {miembro.mention}. Total: **{total} 🪙**")
         else:
-            await ctx.send(f"❌ {miembro.mention} no tiene suficiente oro (tiene **{total} 🪙**).")
+            await ctx.send(f"❌ {miembro.mention} está pobre :( (tiene **{total} 🪙**).")
 
 
 async def setup(bot):

@@ -45,9 +45,9 @@ async def quitar_item(jugador_id: str, item: str, cantidad: int = 1) -> tuple[bo
             jugador_id, item
         )
         if not existente:
-            return False, f"No tenés **{item}** en tu inventario."
+            return False, f"No tienes **{item}** en tu inventario."
         if existente["cantidad"] < cantidad:
-            return False, f"Solo tenés **{existente['cantidad']}x {item}**, no podés quitar {cantidad}."
+            return False, f"Solo tienes **{existente['cantidad']}x {item}**, no puede quitar {cantidad}."
         if existente["cantidad"] == cantidad:
             await conn.execute("DELETE FROM inventario WHERE id = $1", existente["id"])
         else:
@@ -64,4 +64,4 @@ async def transferir_item(emisor_id: str, receptor_id: str, item: str, cantidad:
     if not exito:
         return False, msg
     await agregar_item(receptor_id, item, cantidad)
-    return True, "Transferencia realizada"
+    return True, "Chanchullo ejecutado >:) "
