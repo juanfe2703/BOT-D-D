@@ -22,14 +22,14 @@
 
 ## 🚀 Deploy en Railway (24/7 gratis)
 
-1. Subí el proyecto a GitHub (sin el `.env`)
-2. Entrá a [railway.app](https://railway.app) y creá un nuevo proyecto
-3. Elegí **"Deploy from GitHub repo"** y seleccioná tu repositorio
-4. Agregá una base de datos: **New → Database → PostgreSQL**
-5. En tu servicio del bot, andá a **Variables** y agregá:
-   - `DISCORD_TOKEN` → tu token de Discord
-   - `DATABASE_URL` → Railway te la genera automáticamente desde la base de datos (copiala desde la tab de PostgreSQL → Connect)
-6. ¡Listo! Railway despliega solo cada vez que pushees a GitHub
+1. Subir el proyecto a GitHub (sin el `.env`)
+2. Entrar a [railway.app](https://railway.app) y crear un nuevo proyecto
+3. Elegir **"Deploy from GitHub repo"** y seleccionar mi repositorio
+4. Agregar una base de datos: **New → Database → PostgreSQL**
+5. En mi servicio del bot, ir a **Variables** y agregar:
+   - `DISCORD_TOKEN` → mi token de Discord
+   - `DATABASE_URL` → Railway lo genera automáticamente desde la base de datos (copiarlo desde la tab de PostgreSQL → Connect)
+6. ¡Listo! Railway despliega solo cada vez que se pushees a GitHub
 
 ---
 
