@@ -44,6 +44,7 @@ class Admin(commands.Cog, name="Administración"):
             return
         cobre, plata, oro = resultado
         nuevo = await dar_monedas_admin(str(miembro.id), cobre, plata, oro)
+        print(nuevo)
         await ctx.send(
             f"✅ Se le dieron {formato_monedas(oro, plata, cobre)} a {miembro.mention}. "
             f"Nuevo saldo: {formato_monedas(nuevo['oro'], nuevo['plata'], nuevo['cobre'])}"
