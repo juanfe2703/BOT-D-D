@@ -1,63 +1,182 @@
+"""
+Sistema monetario: cobre < plata < oro
+  1 plata = 100 cobre
+  1 oro   = 100 plata  = 10 000 cobre
+"""
 from database.db import get_pool
 
 
-async def obtener_o_crear_jugador(user_id: str) -> int:
-    """Devuelve el oro del jugador. Si no existe, lo crea con 1 de oro."""
+# ─── helpers ────────────────────────────────────────────────────────────────
+
+def a_cobre(cobre: int = 0, plata: int = 0, oro: int = 0) -> int:
+    """Convierte cualquier combinación de monedas a cobre total."""
+    return cobre + plata * 100 + oro * 10_000
+
+
+def desde_cobre(total: int) -> dict:
+    """Descompone un total de cobre en oro/plata/cobre de forma óptima."""
+    oro   = total // 10_000
+    resto = total %  10_000
+    plata = resto  // 100
+    cobre = resto  %  100
+    return {"oro": oro, "plata": plata, "cobre": cobre}
+
+
+def formato_monedas(oro: int, plata: int, cobre: int) -> str:
+    """Devuelve string legible, omitiendo denominaciones en 0."""
+    partes = []
+    if oro:   partes.append(f"**{oro}** 🥇")
+    if plata: partes.append(f"**{plata}** 🥈")
+    if cobre: partes.append(f"**{cobre}** 🟤")
+    return " · ".join(partes) if partes else "**0** 🟤"
+
+
+# ─── jugador ────────────────────────────────────────────────────────────────
+
+async def obtener_o_crear_jugador(user_id: str) -> dict:
+    """Devuelve la fila del jugador. Si no existe, la crea con 100 cobre."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT oro FROM jugadores WHERE id = $1", user_id)
+        row = await conn.fetchrow("SELECT * FROM jugadores WHERE id = $1", user_id)
         if row is None:
             await conn.execute(
-                "INSERT INTO jugadores (id, oro) VALUES ($1, 100)", user_id
+                "INSERT INTO jugadores (id, cobre, plata, oro) VALUES ($1, 100, 0, 0)",
+                user_id
             )
-            return 1
-        return row["oro"]
+            row = await conn.fetchrow("SELECT * FROM jugadores WHERE id = $1", user_id)
+        return dict(row)
 
 
-async def obtener_oro(user_id: str) -> int:
+async def obtener_monedas(user_id: str) -> dict:
     return await obtener_o_crear_jugador(user_id)
 
 
-async def transferir_oro(emisor_id: str, receptor_id: str, cantidad: int) -> tuple[bool, str]:
-    """Transfiere oro de un jugador a otro. Retorna (éxito, mensaje)."""
-    emisor_oro = await obtener_o_crear_jugador(emisor_id)
+# ─── transferencias ─────────────────────────────────────────────────────────
+
+async def transferir_monedas(
+    emisor_id: str, receptor_id: str,
+    cobre: int = 0, plata: int = 0, oro: int = 0
+) -> tuple[bool, str]:
+    """Transfiere monedas. Descuenta del saldo total del emisor."""
+    total_envio = a_cobre(cobre, plata, oro)
+    if total_envio <= 0:
+        return False, "La cantidad debe ser mayor a 0."
+
+    emisor = await obtener_o_crear_jugador(emisor_id)
     await obtener_o_crear_jugador(receptor_id)
 
-    if emisor_oro < cantidad:
-        return False, f"Usted está pobre. Actualmente tiene **{emisor_oro}** 🪙"
+    total_emisor = a_cobre(emisor["cobre"], emisor["plata"], emisor["oro"])
+    if total_emisor < total_envio:
+        restante = desde_cobre(total_emisor)
+        return False, f"No tienes suficiente. Tienes {formato_monedas(**restante)}."
+
+    # Calcular nuevo saldo del emisor y redistribuir óptimamente
+    nuevo_emisor = desde_cobre(total_emisor - total_envio)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
-                "UPDATE jugadores SET oro = oro - $1 WHERE id = $2", cantidad, emisor_id
+                "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
+                nuevo_emisor["cobre"], nuevo_emisor["plata"], nuevo_emisor["oro"], emisor_id
+            )
+            receptor = await conn.fetchrow("SELECT * FROM jugadores WHERE id=$1", receptor_id)
+            total_receptor = a_cobre(receptor["cobre"], receptor["plata"], receptor["oro"])
+            nuevo_receptor = desde_cobre(total_receptor + total_envio)
+            await conn.execute(
+                "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
+                nuevo_receptor["cobre"], nuevo_receptor["plata"], nuevo_receptor["oro"], receptor_id
             )
             await conn.execute(
-                "UPDATE jugadores SET oro = oro + $1 WHERE id = $2", cantidad, receptor_id
+                """INSERT INTO transacciones (emisor_id, receptor_id, tipo, cobre, plata, oro, detalle)
+                   VALUES ($1, $2, 'transferencia', $3, $4, $5, $6)""",
+                emisor_id, receptor_id, cobre, plata, oro,
+                f"Transferencia de {formato_monedas(oro, plata, cobre)}"
             )
     return True, "Transferencia realizada"
 
 
-async def dar_oro_admin(receptor_id: str, cantidad: int) -> int:
-    """Agrega oro a un jugador (uso de admin). Devuelve el nuevo total."""
-    await obtener_o_crear_jugador(receptor_id)
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "UPDATE jugadores SET oro = oro + $1 WHERE id = $2 RETURNING oro",
-            cantidad, receptor_id
-        )
-    return row["oro"]
+# ─── admin ──────────────────────────────────────────────────────────────────
 
+async def dar_monedas_admin(
+    receptor_id: str,
+    cobre: int = 0, plata: int = 0, oro: int = 0
+) -> dict:
+    """Añade monedas (admin). Devuelve el nuevo saldo."""
+    total_add = a_cobre(cobre, plata, oro)
+    jugador = await obtener_o_crear_jugador(receptor_id)
+    total_actual = a_cobre(jugador["cobre"], jugador["plata"], jugador["oro"])
+    nuevo = desde_cobre(total_actual + total_add)
 
-async def quitar_oro_admin(receptor_id: str, cantidad: int) -> tuple[bool, int]:
-    """Quita oro a un jugador (uso de admin). Devuelve (éxito, nuevo total)."""
-    oro_actual = await obtener_o_crear_jugador(receptor_id)
-    if oro_actual < cantidad:
-        return False, oro_actual
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE jugadores SET oro = oro - $1 WHERE id = $2", cantidad, receptor_id
+            "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
+            nuevo["cobre"], nuevo["plata"], nuevo["oro"], receptor_id
         )
-    return True, oro_actual - cantidad
+        await conn.execute(
+            """INSERT INTO transacciones (receptor_id, tipo, cobre, plata, oro, detalle)
+               VALUES ($1, 'admin_dar', $2, $3, $4, $5)""",
+            receptor_id, cobre, plata, oro,
+            f"Admin dio {formato_monedas(oro, plata, cobre)}"
+        )
+    return nuevo
+
+
+async def quitar_monedas_admin(
+    receptor_id: str,
+    cobre: int = 0, plata: int = 0, oro: int = 0
+) -> tuple[bool, dict]:
+    """Quita monedas (admin). Devuelve (éxito, saldo_actual)."""
+    total_quitar = a_cobre(cobre, plata, oro)
+    jugador = await obtener_o_crear_jugador(receptor_id)
+    total_actual = a_cobre(jugador["cobre"], jugador["plata"], jugador["oro"])
+
+    if total_actual < total_quitar:
+        return False, desde_cobre(total_actual)
+
+    nuevo = desde_cobre(total_actual - total_quitar)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
+            nuevo["cobre"], nuevo["plata"], nuevo["oro"], receptor_id
+        )
+        await conn.execute(
+            """INSERT INTO transacciones (receptor_id, tipo, cobre, plata, oro, detalle)
+               VALUES ($1, 'admin_quitar', $2, $3, $4, $5)""",
+            receptor_id, cobre, plata, oro,
+            f"Admin quitó {formato_monedas(oro, plata, cobre)}"
+        )
+    return True, nuevo
+
+
+# ─── historial ──────────────────────────────────────────────────────────────
+
+async def obtener_historial(user_id: str, limite: int = 10) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT * FROM transacciones
+               WHERE emisor_id = $1 OR receptor_id = $1
+               ORDER BY creado_en DESC LIMIT $2""",
+            user_id, limite
+        )
+    return [dict(r) for r in rows]
+
+
+# ─── leaderboard ────────────────────────────────────────────────────────────
+
+async def obtener_leaderboard(limite: int = 10) -> list:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id,
+                      oro * 10000 + plata * 100 + cobre AS total_cobre,
+                      oro, plata, cobre
+               FROM jugadores
+               ORDER BY total_cobre DESC
+               LIMIT $1""",
+            limite
+        )
+    return [dict(r) for r in rows]

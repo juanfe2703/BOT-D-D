@@ -10,33 +10,52 @@ load_dotenv()
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
 
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
+    print(f"   Servidores: {len(bot.guilds)}")
+
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Falta un argumento: `{error.param.name}`")
+        await ctx.send(f"❌ Falta el argumento `{error.param.name}`. Usá `!ayuda` para ver cómo usar el comando.")
     elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Argumento inválido. Revisá el comando.")
+        await ctx.send("❌ Argumento inválido. Revisá el comando con `!ayuda`.")
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("🔒 No tenés permisos para usar ese comando.")
     elif isinstance(error, commands.CommandNotFound):
         pass
     else:
-        await ctx.send(f"❌ Error: {error}")
-        print(f"ERROR: {error}")
+        await ctx.send(f"❌ Error inesperado: {error}")
+        print(f"[ERROR] {type(error).__name__}: {error}")
+
 
 async def main():
     async with bot:
-        await init_db()  # async ahora
-        await bot.load_extension("cogs.economia")
-        await bot.load_extension("cogs.inventario")
-        await bot.load_extension("cogs.personajes")
+        await init_db()
+        cogs = [
+            "cogs.economia",
+            "cogs.inventario",
+            "cogs.personajes",
+            "cogs.admin",
+            "cogs.dados",
+            "cogs.ayuda",
+            # ── NPCs ──────────────
+            "cogs.npcs",        # comandos para jugadores
+            "cogs.admin_npcs",  # comandos para admins
+        ]
+        for cog in cogs:
+            await bot.load_extension(cog)
+            print(f"  ✔ {cog} cargado")
+
         token = os.getenv("DISCORD_TOKEN")
         if not token:
             raise ValueError("No se encontró DISCORD_TOKEN en el archivo .env")
         await bot.start(token)
+
 
 asyncio.run(main())

@@ -1,77 +1,93 @@
 import discord
 from discord.ext import commands
 from services.inventario_service import (
-    obtener_inventario, agregar_item, quitar_item, transferir_item
+    obtener_inventario, agregar_item, quitar_item, transferir_item,
+    obtener_tienda, comprar_item_tienda
 )
+from services.economia_service import formato_monedas
 
 
 class Inventario(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="inventario", help="Muestra tu inventario.")
+    # ── ver inventario ───────────────────────────────────────────────────────
+
+    @commands.command(name="inventario", aliases=["inv"],
+                      help="Muestra tu inventario (o el de otro jugador).")
     async def inventario(self, ctx, miembro: discord.Member = None):
-        """!inventario [@usuario]"""
         objetivo = miembro or ctx.author
         items = await obtener_inventario(str(objetivo.id))
-
         embed = discord.Embed(
             title=f"🎒 Inventario de {objetivo.display_name}",
             color=discord.Color.blue()
         )
         if not items:
-            embed.description = "*Está mas vacio que el corazón de Alessio.*"
+            embed.description = "*Vacío como las arcas del reino.*"
         else:
-            embed.description = "\n".join(f"• **{row['item']}** x{row['cantidad']}" for row in items)
-
+            embed.description = "\n".join(
+                f"• **{row['item']}** ×{row['cantidad']}" for row in items
+            )
         await ctx.send(embed=embed)
 
-    @commands.command(name="agregar_item", help="[ADMIN] Agrega un ítem al inventario de un jugador.")
-    @commands.has_permissions(administrator=True)
-    async def agregar_item_cmd(self, ctx, miembro: discord.Member, cantidad: int, *, item: str):
-        """!agregar_item @usuario cantidad nombre del item"""
+    # ── dar ítem ─────────────────────────────────────────────────────────────
+
+    @commands.command(name="dar_item",
+                      help="Dale un ítem de tu inventario a otro jugador.")
+    async def dar_item(self, ctx, miembro: discord.Member, cantidad: int, *, item: str):
+        if miembro.id == ctx.author.id:
+            await ctx.send("❌ No podés darte ítems a vos mismo.")
+            return
         if cantidad <= 0:
             await ctx.send("❌ La cantidad debe ser mayor a 0.")
             return
-        await agregar_item(str(miembro.id), item, cantidad)
-        await ctx.send(f"✅ Se agregaron **{cantidad}x {item}** al inventario de {miembro.mention}.")
-
-    @commands.command(name="quitar_item", help="[ADMIN] Quita un ítem del inventario de un jugador.")
-    @commands.has_permissions(administrator=True)
-    async def quitar_item_cmd(self, ctx, miembro: discord.Member, cantidad: int, *, item: str):
-        """!quitar_item @usuario cantidad nombre del item"""
-        if cantidad <= 0:
-            await ctx.send("❌ La cantidad debe ser mayor a 0.")
-            return
-        exito, mensaje = await quitar_item(str(miembro.id), item, cantidad)
-        if exito:
-            await ctx.send(f"✅ el pinshi admin le quitó **{cantidad}x {item}** del inventario a {miembro.mention}.")
-        else:
-            await ctx.send(f"❌ {mensaje}")
-
-    @commands.command(name="dar_item", help="Dale un ítem de tu inventario a otro jugador.")
-    async def dar_item_cmd(self, ctx, miembro: discord.Member, cantidad: int, *, item: str):
-        """!dar_item @usuario cantidad nombre del item"""
-        emisor_id = str(ctx.author.id)
-        receptor_id = str(miembro.id)
-
-        if emisor_id == receptor_id:
-            await ctx.send("❌ Trmposit@ sino >:(")
-            return
-        if cantidad <= 0:
-            await ctx.send("❌ la sinapsis se fue se sabático cariño (La cantidad debe ser mayor a 0).")
-            return
-
-        exito, mensaje = await transferir_item(emisor_id, receptor_id, item, cantidad)
+        exito, msg = await transferir_item(str(ctx.author.id), str(miembro.id), item, cantidad)
         if exito:
             embed = discord.Embed(
-                title="📦 Ítem Transferido",
-                description=f"{ctx.author.mention} le dio **{cantidad}x {item}** a {miembro.mention}",
+                title="📦 Ítem transferido",
+                description=f"{ctx.author.mention} le dio **{cantidad}× {item.title()}** a {miembro.mention}",
                 color=discord.Color.green()
             )
             await ctx.send(embed=embed)
         else:
-            await ctx.send(f"❌ {mensaje}")
+            await ctx.send(f"❌ {msg}")
+
+    # ── tienda ───────────────────────────────────────────────────────────────
+
+    @commands.command(name="tienda",
+                      help="Muestra los ítems disponibles en la tienda.")
+    async def tienda(self, ctx):
+        productos = await obtener_tienda()
+        embed = discord.Embed(title="🏪 Tienda", color=discord.Color.dark_gold())
+        if not productos:
+            embed.description = "*La tienda está vacía. Un admin puede agregar productos con `!tienda_agregar`.*"
+        else:
+            for p in productos:
+                precio = formato_monedas(p["precio_oro"], p["precio_plata"], p["precio_cobre"])
+                stock_txt = "∞" if p["stock"] == -1 else str(p["stock"])
+                valor = f"Precio: {precio} | Stock: {stock_txt}"
+                if p.get("descripcion"):
+                    valor = f"*{p['descripcion']}*\n{valor}"
+                embed.add_field(name=f"🔹 {p['nombre']}", value=valor, inline=False)
+        embed.set_footer(text="Compra con: !comprar <ítem> [cantidad]")
+        await ctx.send(embed=embed)
+
+    @commands.command(name="comprar",
+                      help="Compra un ítem de la tienda. Ej: !comprar Poción de Curación 2")
+    async def comprar(self, ctx, cantidad: int = 1, *, item: str):
+        if cantidad <= 0:
+            await ctx.send("❌ La cantidad debe ser mayor a 0.")
+            return
+        exito, resultado = await comprar_item_tienda(str(ctx.author.id), item, cantidad)
+        if exito:
+            embed = discord.Embed(
+                title="🛒 Compra exitosa",
+                description=f"{ctx.author.mention} compró **{cantidad}× {resultado}**",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ {resultado}")
 
 
 async def setup(bot):
