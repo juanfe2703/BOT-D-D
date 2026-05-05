@@ -34,17 +34,37 @@ def formato_monedas(oro: int, plata: int, cobre: int) -> str:
 # ─── jugador ────────────────────────────────────────────────────────────────
 
 async def obtener_o_crear_jugador(user_id: str) -> dict:
-    """Devuelve la fila del jugador. Si no existe, la crea con 100 cobre."""
+    """
+    Devuelve la fila del jugador como dict. Si no existe, la crea con 100 cobre.
+
+    BUG CORREGIDO: la versión anterior hacía INSERT y luego un segundo SELECT
+    en autocommit separado. En PostgreSQL local con asyncpg esto podía devolver
+    None en el segundo fetchrow (el INSERT aún no era visible), causando que
+    dict(None) lanzara TypeError, o que asyncpg devolviera un Record sin las
+    columnas esperadas → KeyError: 'plata'.
+
+    Solución: usar INSERT ... ON CONFLICT DO NOTHING ... RETURNING *.
+    Si el jugador ya existe, el RETURNING no devuelve nada, y hacemos
+    un SELECT dentro de la misma transacción. Todo en una sola conexión,
+    sin race conditions.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT * FROM jugadores WHERE id = $1", user_id)
-        if row is None:
-            await conn.execute(
-                "INSERT INTO jugadores (id, cobre, plata, oro) VALUES ($1, 100, 0, 0)",
+        async with conn.transaction():
+            # Intentar insertar; si ya existe no hace nada
+            row = await conn.fetchrow(
+                """INSERT INTO jugadores (id, cobre, plata, oro)
+                   VALUES ($1, 100, 0, 0)
+                   ON CONFLICT (id) DO NOTHING
+                   RETURNING *""",
                 user_id
             )
-            row = await conn.fetchrow("SELECT * FROM jugadores WHERE id = $1", user_id)
-        return dict(row)
+            if row is None:
+                # Ya existía, traerlo
+                row = await conn.fetchrow(
+                    "SELECT * FROM jugadores WHERE id = $1", user_id
+                )
+    return dict(row)
 
 
 async def obtener_monedas(user_id: str) -> dict:
@@ -70,7 +90,6 @@ async def transferir_monedas(
         restante = desde_cobre(total_emisor)
         return False, f"No tienes suficiente. Tienes {formato_monedas(**restante)}."
 
-    # Calcular nuevo saldo del emisor y redistribuir óptimamente
     nuevo_emisor = desde_cobre(total_emisor - total_envio)
 
     pool = await get_pool()
