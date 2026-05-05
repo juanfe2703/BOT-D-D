@@ -14,8 +14,12 @@ from services.personaje_service import (
     agregar_condicion, quitar_condicion
 )
 
-# reutilizamos el parser de monedas del cog de economía
+
 def _parsear_monedas(args):
+    """
+    Parsea argumentos de monedas: 5o 3p 10c → (cobre, plata, oro)
+    Devuelve None si el formato es inválido o si el total es 0.
+    """
     cobre = plata = oro = 0
     for arg in args:
         arg = arg.lower().strip()
@@ -38,13 +42,20 @@ class Admin(commands.Cog, name="Administración"):
     @commands.command(name="admin_dar", help="[ADMIN] Da monedas a un jugador. Ej: !admin_dar @u 5o 3p")
     @commands.has_permissions(administrator=True)
     async def admin_dar(self, ctx, miembro: discord.Member, *args):
+        # BUG CORREGIDO #1: faltaba validar que se pasaron argumentos de monedas
+        if not args:
+            await ctx.send("❌ Indicá cuánto dar. Ej: `!admin_dar @usuario 5o 3p 10c`")
+            return
         resultado = _parsear_monedas(args)
         if resultado is None:
             await ctx.send("❌ Formato inválido. Usá `5o`, `3p`, `10c`.")
             return
         cobre, plata, oro = resultado
+        # BUG CORREGIDO #2: si todos los valores son 0, no hacer nada
+        if cobre == 0 and plata == 0 and oro == 0:
+            await ctx.send("❌ La cantidad debe ser mayor a 0.")
+            return
         nuevo = await dar_monedas_admin(str(miembro.id), cobre, plata, oro)
-        print(nuevo)
         await ctx.send(
             f"✅ Se le dieron {formato_monedas(oro, plata, cobre)} a {miembro.mention}. "
             f"Nuevo saldo: {formato_monedas(nuevo['oro'], nuevo['plata'], nuevo['cobre'])}"
@@ -53,11 +64,17 @@ class Admin(commands.Cog, name="Administración"):
     @commands.command(name="admin_quitar", help="[ADMIN] Quita monedas a un jugador.")
     @commands.has_permissions(administrator=True)
     async def admin_quitar(self, ctx, miembro: discord.Member, *args):
+        if not args:
+            await ctx.send("❌ Indicá cuánto quitar. Ej: `!admin_quitar @usuario 5o`")
+            return
         resultado = _parsear_monedas(args)
         if resultado is None:
             await ctx.send("❌ Formato inválido. Usá `5o`, `3p`, `10c`.")
             return
         cobre, plata, oro = resultado
+        if cobre == 0 and plata == 0 and oro == 0:
+            await ctx.send("❌ La cantidad debe ser mayor a 0.")
+            return
         exito, saldo = await quitar_monedas_admin(str(miembro.id), cobre, plata, oro)
         if exito:
             await ctx.send(
@@ -101,13 +118,6 @@ class Admin(commands.Cog, name="Administración"):
                       help="[ADMIN] Agrega un producto a la tienda. Ej: !tienda_agregar 5o 2p | Espada | Descripción | stock")
     @commands.has_permissions(administrator=True)
     async def tienda_agregar(self, ctx, *args):
-        """
-        Uso: !tienda_agregar <precio> <nombre> [descripción] [stock]
-        Precio: combinación de 5o 2p 10c
-        Nombre y descripción separados por |
-        Ejemplo: !tienda_agregar 5o | Espada Larga | Una espada de acero | 10
-        """
-        # Unir todo y separar por |
         texto = " ".join(args)
         partes = [p.strip() for p in texto.split("|")]
 
@@ -123,11 +133,24 @@ class Admin(commands.Cog, name="Administración"):
         descripcion = partes[2] if len(partes) > 2 else ""
         stock_raw   = partes[3] if len(partes) > 3 else "-1"
 
+        if not nombre:
+            await ctx.send("❌ El nombre del producto no puede estar vacío.")
+            return
+
         resultado = _parsear_monedas(precio_args)
         if resultado is None:
             await ctx.send("❌ Precio inválido. Usá `5o`, `2p`, `10c`.")
             return
         cobre, plata, oro = resultado
+
+        # BUG CORREGIDO #3: avisar si el precio queda en 0 (probablemente error del admin)
+        if cobre == 0 and plata == 0 and oro == 0:
+            await ctx.send(
+                "⚠️ El precio quedó en **0**. Si es intencional, confirmá con "
+                "`!tienda_agregar 0c | <nombre>`. "
+                "Si no, revisá el formato del precio."
+            )
+            return
 
         try:
             stock = int(stock_raw)
@@ -217,6 +240,23 @@ class Admin(commands.Cog, name="Administración"):
         await actualizar_personaje(str(miembro.id), xp=nuevo_xp)
         signo = "+" if xp > 0 else ""
         await ctx.send(f"✨ {miembro.mention} {signo}{xp} XP. Total: **{nuevo_xp} XP**")
+
+    # ── manejador de errores de permisos ──────────────────────────────────────
+    # BUG CORREGIDO #4: sin este handler, cuando alguien sin permisos usa un
+    # comando admin, Discord.py lanza CheckFailure en silencio y el bot no responde nada.
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("🔒 No tenés permisos de administrador para usar ese comando.")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(
+                f"❌ Falta el argumento `{error.param.name}`.\n"
+                f"Usá `!ayuda` para ver el uso correcto."
+            )
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send("❌ Argumento inválido. Revisá el comando con `!ayuda`.")
+        # No manejar otros errores acá para que los procese el handler global en main.py
 
 
 async def setup(bot):

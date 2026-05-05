@@ -67,7 +67,7 @@ async def transferir_item(emisor_id: str, receptor_id: str, item: str, cantidad:
     return True, f"Transferido {cantidad}x {nombre_final}"
 
 
-# ─── tienda ─────────────────────────────────────────────────────────────────
+# ─── tienda ──────────────────────────────────────────────────────────────────
 
 async def obtener_tienda() -> list:
     pool = await get_pool()
@@ -138,6 +138,9 @@ async def comprar_item_tienda(jugador_id: str, nombre: str, cantidad: int = 1) -
 
         nuevo_saldo = desde_cobre(saldo - precio_total)
 
+        # BUG CORREGIDO: agregar el ítem al inventario DENTRO de la transacción.
+        # Antes se hacía después del bloque, con una llamada separada a agregar_item().
+        # Si esa llamada fallaba, el jugador ya había pagado pero no recibía el ítem.
         async with conn.transaction():
             await conn.execute(
                 "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
@@ -157,6 +160,20 @@ async def comprar_item_tienda(jugador_id: str, nombre: str, cantidad: int = 1) -
                 producto["precio_oro"]   * cantidad,
                 f"Compró {cantidad}x {producto['nombre']}"
             )
+            item_norm = producto["nombre"].strip().title()
+            existente = await conn.fetchrow(
+                "SELECT id FROM inventario WHERE jugador_id=$1 AND LOWER(item)=LOWER($2)",
+                jugador_id, item_norm
+            )
+            if existente:
+                await conn.execute(
+                    "UPDATE inventario SET cantidad=cantidad+$1 WHERE id=$2",
+                    cantidad, existente["id"]
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO inventario (jugador_id, item, cantidad) VALUES ($1, $2, $3)",
+                    jugador_id, item_norm, cantidad
+                )
 
-    await agregar_item(jugador_id, producto["nombre"], cantidad)
     return True, producto["nombre"]

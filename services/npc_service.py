@@ -61,10 +61,6 @@ async def crear_npc(
 
 
 async def editar_npc(nombre: str, **kwargs) -> tuple[bool, str]:
-    """
-    Actualiza campos de un NPC. kwargs puede incluir:
-    descripcion, imagen_url, dialogo_bienvenida, dialogo_venta, dialogo_sin_stock
-    """
     campos_validos = {
         "descripcion", "imagen_url",
         "dialogo_bienvenida", "dialogo_venta", "dialogo_sin_stock"
@@ -170,11 +166,6 @@ async def comprar_a_npc(
     item_nombre: str,
     cantidad: int = 1,
 ) -> tuple[bool, str, dict | None]:
-    """
-    Retorna (exito, mensaje_rol, datos_npc).
-    El mensaje ya está en estilo narrativo/rol.
-    datos_npc se devuelve siempre que el NPC exista (para el embed).
-    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         npc = await conn.fetchrow(
@@ -200,7 +191,6 @@ async def comprar_a_npc(
 
         producto = dict(producto)
 
-        # Verificar stock
         if producto["stock"] == 0:
             dialogo = (
                 npc["dialogo_sin_stock"]
@@ -215,16 +205,11 @@ async def comprar_a_npc(
             )
             return False, dialogo, npc
 
-        # Verificar saldo
-        precio_unit = a_cobre(
-            producto["precio_cobre"],
-            producto["precio_plata"],
-            producto["precio_oro"],
-        )
+        precio_unit  = a_cobre(producto["precio_cobre"], producto["precio_plata"], producto["precio_oro"])
         precio_total = precio_unit * cantidad
 
         jugador = await obtener_o_crear_jugador(jugador_id)
-        saldo = a_cobre(jugador["cobre"], jugador["plata"], jugador["oro"])
+        saldo   = a_cobre(jugador["cobre"], jugador["plata"], jugador["oro"])
 
         if saldo < precio_total:
             faltante = desde_cobre(precio_total - saldo)
@@ -234,14 +219,15 @@ async def comprar_a_npc(
             )
             return False, dialogo, npc
 
-        # Ejecutar la compra
         nuevo_saldo = desde_cobre(saldo - precio_total)
 
+        # BUG CORREGIDO: el insert al inventario del jugador ahora está DENTRO
+        # del bloque transaction. Antes estaba afuera: si fallaba, el jugador
+        # perdía el dinero pero no recibía el ítem.
         async with conn.transaction():
             await conn.execute(
                 "UPDATE jugadores SET cobre=$1, plata=$2, oro=$3 WHERE id=$4",
-                nuevo_saldo["cobre"], nuevo_saldo["plata"],
-                nuevo_saldo["oro"], jugador_id,
+                nuevo_saldo["cobre"], nuevo_saldo["plata"], nuevo_saldo["oro"], jugador_id,
             )
             if producto["stock"] != -1:
                 await conn.execute(
@@ -258,10 +244,22 @@ async def comprar_a_npc(
                 producto["precio_oro"]   * cantidad,
                 f"Compró {cantidad}x {producto['item']} a {npc['nombre']}",
             )
-
-    # Agregar ítem al inventario del jugador
-    from services.inventario_service import agregar_item
-    await agregar_item(jugador_id, producto["item"], cantidad)
+            # Agregar ítem al inventario dentro de la misma transacción
+            item_norm = producto["item"].strip().title()
+            existente = await conn.fetchrow(
+                "SELECT id FROM inventario WHERE jugador_id=$1 AND LOWER(item)=LOWER($2)",
+                jugador_id, item_norm
+            )
+            if existente:
+                await conn.execute(
+                    "UPDATE inventario SET cantidad=cantidad+$1 WHERE id=$2",
+                    cantidad, existente["id"]
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO inventario (jugador_id, item, cantidad) VALUES ($1, $2, $3)",
+                    jugador_id, item_norm, cantidad
+                )
 
     dialogo = (
         npc["dialogo_venta"]

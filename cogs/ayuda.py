@@ -2,6 +2,9 @@ import discord
 from discord.ext import commands
 
 
+# BUG CORREGIDO: faltaban todos los comandos de NPCs en la ayuda.
+# También se corrigió el footer de !tienda que decía el orden de argumentos viejo.
+
 COMANDOS = {
     "🎲 Dados": [
         ("`!tirar 1d20`",         "Tira un d20"),
@@ -18,9 +21,15 @@ COMANDOS = {
     ],
     "🎒 Inventario": [
         ("`!inventario [@u]`",            "Ver inventario"),
-        ("`!dar_item @u cantidad item`",  "Dar ítem a otro jugador"),
+        ("`!dar_item @u cantidad ítem`",  "Dar ítem a otro jugador"),
         ("`!tienda`",                     "Ver productos disponibles"),
-        ("`!comprar [cantidad] <item>`",  "Comprar de la tienda"),
+        ("`!comprar <ítem>`",             "Comprar de la tienda (cantidad opcional adelante)"),
+    ],
+    "🧙 NPCs": [
+        ("`!npcs`",                              "Ver todos los NPCs disponibles"),
+        ("`!npc <nombre>`",                      "Hablar con un NPC y ver su inventario"),
+        ("`!comprar_npc <NPC> <ítem>`",          "Comprarle a un NPC"),
+        ("`!comprar_npc <NPC> <cantidad> <ítem>`", "Comprar varias unidades"),
     ],
     "⚔️ Personajes": [
         ("`!crear_personaje`",            "Crear un nuevo personaje"),
@@ -34,17 +43,27 @@ COMANDOS = {
         ("`!quitar_condicion <estado>`",  "Eliminar condición"),
     ],
     "🔐 Admin": [
-        ("`!admin_dar @u 5o 2p`",         "Dar monedas"),
-        ("`!admin_quitar @u 5o`",         "Quitar monedas"),
-        ("`!admin_agregar_item @u N item`","Agregar ítem"),
-        ("`!admin_quitar_item @u N item`", "Quitar ítem"),
-        ("`!tienda_agregar precio | nombre | desc | stock`", "Agregar a tienda"),
-        ("`!tienda_quitar <nombre>`",     "Quitar de tienda"),
-        ("`!admin_nivel @u N`",           "Cambiar nivel"),
-        ("`!admin_set_hp @u max [actual]`","Configurar HP"),
-        ("`!admin_xp @u cantidad`",       "Dar XP"),
-        ("`!admin_condicion @u estado`",  "Aplicar condición"),
-        ("`!admin_quitar_condicion @u estado`", "Quitar condición"),
+        ("`!admin_dar @u 5o 2p`",                      "Dar monedas"),
+        ("`!admin_quitar @u 5o`",                      "Quitar monedas"),
+        ("`!admin_agregar_item @u N ítem`",            "Agregar ítem a jugador"),
+        ("`!admin_quitar_item @u N ítem`",             "Quitar ítem de jugador"),
+        ("`!tienda_agregar precio | nombre | desc | stock`", "Agregar a tienda general"),
+        ("`!tienda_quitar <nombre>`",                  "Quitar de tienda general"),
+        ("`!admin_nivel @u N`",                        "Cambiar nivel"),
+        ("`!admin_set_hp @u max [actual]`",            "Configurar HP"),
+        ("`!admin_xp @u cantidad`",                    "Dar XP"),
+        ("`!admin_condicion @u estado`",               "Aplicar condición"),
+        ("`!admin_quitar_condicion @u estado`",        "Quitar condición"),
+    ],
+    "🔐 Admin NPCs": [
+        ("`!npc_crear nombre | desc | img_url`",                        "Crear NPC"),
+        ("`!npc_editar <NPC> <campo> | <valor>`",                       "Editar campo del NPC"),
+        ("`!npc_eliminar <nombre>`",                                    "Eliminar NPC"),
+        ("`!npc_inv <nombre>`",                                         "Ver inventario del NPC"),
+        ("`!npc_item_agregar NPC | precio | ítem | desc | stock`",      "Agregar ítem a NPC"),
+        ("`!npc_items_agregar <NPC>` + líneas",                         "Carga masiva de ítems"),
+        ("`!npc_item_quitar NPC | ítem`",                               "Quitar ítem de NPC"),
+        ("`!npc_lista`",                                                "Listar todos los NPCs"),
     ],
 }
 
@@ -52,13 +71,11 @@ COMANDOS = {
 class Ayuda(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Deshabilitar el help nativo
         bot.remove_command("help")
 
     @commands.command(name="ayuda", aliases=["help", "h"],
                       help="Muestra esta guía de comandos.")
     async def ayuda(self, ctx, categoria: str = None):
-        # Si se pide una categoría específica
         if categoria:
             cat_lower = categoria.lower()
             for titulo, cmds in COMANDOS.items():
@@ -71,7 +88,6 @@ class Ayuda(commands.Cog):
             await ctx.send(f"❌ Categoría `{categoria}` no encontrada.")
             return
 
-        # Vista general
         embed = discord.Embed(
             title="📖 Guía de comandos — Bot D&D",
             description="Usá `!ayuda <categoría>` para ver detalles.\nPrefijo: **`!`**",
@@ -88,4 +104,4 @@ class Ayuda(commands.Cog):
 
 
 async def setup(bot):
-    await bot.add_cog(Ayuda(bot))
+    await bot.add_cog(Ayuda(bot)) 

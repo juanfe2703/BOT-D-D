@@ -12,7 +12,6 @@ from services.economia_service import formato_monedas
 
 
 def _embed_npc(npc: dict, titulo: str, color=discord.Color.teal()) -> discord.Embed:
-    """Crea un embed base con la identidad visual del NPC."""
     embed = discord.Embed(title=titulo, color=color)
     if npc.get("descripcion"):
         embed.description = f"*{npc['descripcion']}*"
@@ -25,21 +24,12 @@ class Npcs(commands.Cog, name="NPCs"):
     def __init__(self, bot):
         self.bot = bot
 
-    # ── listar NPCs ──────────────────────────────────────────────────────────
-
-    @commands.command(
-        name="npcs",
-        help="Muestra todos los NPCs disponibles para comerciar.",
-    )
+    @commands.command(name="npcs", help="Muestra todos los NPCs disponibles.")
     async def npcs(self, ctx):
         lista = await listar_npcs()
         if not lista:
-            await ctx.send(
-                "📭 No hay ningún NPC registrado todavía. "
-                "Un admin puede crear uno con `!npc_crear`."
-            )
+            await ctx.send("📭 No hay ningún NPC registrado todavía.")
             return
-
         embed = discord.Embed(
             title="🧑‍🤝‍🧑 NPCs disponibles",
             description="Usá `!npc <nombre>` para hablar con alguno.",
@@ -53,12 +43,7 @@ class Npcs(commands.Cog, name="NPCs"):
             )
         await ctx.send(embed=embed)
 
-    # ── ver perfil NPC ───────────────────────────────────────────────────────
-
-    @commands.command(
-        name="npc",
-        help="Interactúa con un NPC y ve su inventario. Ej: !npc Gausto",
-    )
+    @commands.command(name="npc", help="Interactúa con un NPC. Ej: !npc Gausto")
     async def npc(self, ctx, *, nombre: str):
         npc = await obtener_npc(nombre)
         if not npc:
@@ -68,100 +53,80 @@ class Npcs(commands.Cog, name="NPCs"):
             )
             return
 
-        embed = _embed_npc(
-            npc,
-            titulo=f"🧙 {npc['nombre']}",
-            color=discord.Color.teal(),
-        )
-
-        # Diálogo de bienvenida
+        embed = _embed_npc(npc, titulo=f"🧙 {npc['nombre']}", color=discord.Color.teal())
         bienvenida = (
             npc["dialogo_bienvenida"]
             or f"*{npc['nombre']} te mira y asiente con la cabeza.* — ¿En qué te puedo ayudar?"
         )
         embed.add_field(name="💬", value=bienvenida, inline=False)
 
-        # Inventario
         items = await obtener_inventario_npc(npc["id"])
         if not items:
-            embed.add_field(
-                name="🛍️ Inventario",
-                value="*No tiene nada para vender en este momento.*",
-                inline=False,
-            )
+            embed.add_field(name="🛍️ Inventario", value="*No tiene nada para vender.*", inline=False)
         else:
             lineas = []
             for p in items:
-                precio = formato_monedas(
-                    p["precio_oro"], p["precio_plata"], p["precio_cobre"]
-                )
+                precio    = formato_monedas(p["precio_oro"], p["precio_plata"], p["precio_cobre"])
                 stock_txt = "∞" if p["stock"] == -1 else str(p["stock"])
-                desc = f" — *{p['descripcion']}*" if p.get("descripcion") else ""
-                lineas.append(
-                    f"🔹 **{p['item']}**{desc}\n"
-                    f"  Precio: {precio} · Stock: {stock_txt}"
-                )
-            embed.add_field(
-                name="🛍️ Lo que vende",
-                value="\n".join(lineas),
-                inline=False,
-            )
+                desc      = f" — *{p['descripcion']}*" if p.get("descripcion") else ""
+                lineas.append(f"🔹 **{p['item']}**{desc}\n  Precio: {precio} · Stock: {stock_txt}")
+            embed.add_field(name="🛍️ Lo que vende", value="\n".join(lineas), inline=False)
 
-        embed.set_footer(text=f"Comprá con: !comprar_npc {npc['nombre']} <ítem> [cantidad]")
+        embed.set_footer(text=f"Comprá con: !comprar_npc {npc['nombre']} <ítem>  o  !comprar_npc {npc['nombre']} <cantidad> <ítem>")
         await ctx.send(embed=embed)
 
     # ── comprar a NPC ────────────────────────────────────────────────────────
+    # BUG CORREGIDO: la firma original era comprar_npc(ctx, npc_nombre, cantidad=1, *, item).
+    # Esto hacía que `!comprar_npc Gausto Estofado Real` intentara parsear "Estofado"
+    # como int para `cantidad` → BadArgument antes de que el comando pudiera ejecutarse.
+    # Solución: recibir el resto como *args y detectar si el primer token es número.
 
     @commands.command(
         name="comprar_npc",
         aliases=["cnpc"],
         help=(
-            "Comprá un ítem a un NPC. "
-            "Ej: !comprar_npc Gausto Poción de Curación 2\n"
-            "El NPC debe ir primero, luego el ítem y opcionalmente la cantidad."
+            "Comprá un ítem a un NPC.\n"
+            "Ej: !comprar_npc Gausto Estofado Real\n"
+            "Ej: !comprar_npc Gausto 3 Estofado Real"
         ),
     )
-    async def comprar_npc(self, ctx, npc_nombre: str, cantidad: int = 1, *, item: str):
+    async def comprar_npc(self, ctx, npc_nombre: str, *args):
+        if not args:
+            await ctx.send(
+                "❌ Indicá qué querés comprar.\n"
+                "Uso: `!comprar_npc <NPC> <ítem>` o `!comprar_npc <NPC> <cantidad> <ítem>`"
+            )
+            return
+
+        try:
+            cantidad = int(args[0])
+            item = " ".join(args[1:])
+        except ValueError:
+            cantidad = 1
+            item = " ".join(args)
+
         if cantidad <= 0:
             await ctx.send("❌ La cantidad debe ser mayor a 0.")
             return
+        if not item:
+            await ctx.send("❌ Indicá el nombre del ítem.")
+            return
 
-        exito, dialogo, npc = await comprar_a_npc(
-            str(ctx.author.id), npc_nombre, item, cantidad
-        )
+        exito, dialogo, npc = await comprar_a_npc(str(ctx.author.id), npc_nombre, item, cantidad)
 
         if npc is None:
             await ctx.send(f"❌ {dialogo}")
             return
 
-        color = discord.Color.green() if exito else discord.Color.orange()
-        titulo = (
-            f"✅ Compra a {npc['nombre']}"
-            if exito
-            else f"💬 {npc['nombre']}"
-        )
-        embed = _embed_npc(npc, titulo=titulo, color=color)
+        color  = discord.Color.green() if exito else discord.Color.orange()
+        titulo = f"✅ Compra a {npc['nombre']}" if exito else f"💬 {npc['nombre']}"
+        embed  = _embed_npc(npc, titulo=titulo, color=color)
         embed.add_field(name="💬", value=dialogo, inline=False)
 
         if exito:
-            embed.add_field(
-                name="📦 Recibiste",
-                value=f"**{cantidad}×** {item.title()}",
-                inline=True,
-            )
+            embed.add_field(name="📦 Recibiste", value=f"**{cantidad}×** {item.title()}", inline=True)
 
         await ctx.send(embed=embed)
-
-    # ── error handler local ──────────────────────────────────────────────────
-
-    @comprar_npc.error
-    async def comprar_npc_error(self, ctx, error):
-        if isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(
-                "❌ Uso correcto: `!comprar_npc <NPC> [cantidad] <ítem>`\n"
-                "Ejemplo: `!comprar_npc Gausto 2 Poción de Curación`\n"
-                "Si la cantidad se omite, se compra 1."
-            )
 
 
 async def setup(bot):

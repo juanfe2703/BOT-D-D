@@ -69,15 +69,42 @@ class Inventario(commands.Cog):
                 if p.get("descripcion"):
                     valor = f"*{p['descripcion']}*\n{valor}"
                 embed.add_field(name=f"🔹 {p['nombre']}", value=valor, inline=False)
-        embed.set_footer(text="Compra con: !comprar <ítem> [cantidad]")
+        embed.set_footer(text="Comprá con: !comprar <ítem>  o  !comprar <cantidad> <ítem>")
         await ctx.send(embed=embed)
 
-    @commands.command(name="comprar",
-                      help="Compra un ítem de la tienda. Ej: !comprar Poción de Curación 2")
-    async def comprar(self, ctx, cantidad: int = 1, *, item: str):
+    # ── comprar ───────────────────────────────────────────────────────────────
+    # BUG CORREGIDO: la firma original era `comprar(ctx, cantidad: int = 1, *, item: str)`.
+    # Esto hacía que `!comprar Poción de Curación` intentara parsear "Poción" como int
+    # y lanzara BadArgument antes de que el comando pudiera ejecutarse.
+    # Solución: recibir todo como *args y parsear la cantidad manualmente.
+
+    @commands.command(
+        name="comprar",
+        help="Comprá un ítem de la tienda.\nEj: !comprar Poción de Curación\nEj: !comprar 3 Poción de Curación"
+    )
+    async def comprar(self, ctx, *args):
+        if not args:
+            await ctx.send(
+                "❌ Indicá qué querés comprar.\n"
+                "Uso: `!comprar <ítem>` o `!comprar <cantidad> <ítem>`"
+            )
+            return
+
+        # Si el primer argumento es un número, es la cantidad
+        try:
+            cantidad = int(args[0])
+            item = " ".join(args[1:])
+        except ValueError:
+            cantidad = 1
+            item = " ".join(args)
+
         if cantidad <= 0:
             await ctx.send("❌ La cantidad debe ser mayor a 0.")
             return
+        if not item:
+            await ctx.send("❌ Indicá el nombre del ítem después de la cantidad.")
+            return
+
         exito, resultado = await comprar_item_tienda(str(ctx.author.id), item, cantidad)
         if exito:
             embed = discord.Embed(

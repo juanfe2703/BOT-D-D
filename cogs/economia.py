@@ -8,14 +8,6 @@ from services.economia_service import (
 
 
 def _parsear_monedas(args: tuple) -> tuple[int, int, int] | None:
-    """
-    Interpreta argumentos de monedas desde la línea de comandos.
-    Formatos aceptados:
-      !dar 5o 3p 10c         → 5 oro, 3 plata, 10 cobre
-      !dar 5o                → solo oro
-      !dar 200c              → solo cobre
-    Devuelve (cobre, plata, oro) o None si el formato es inválido.
-    """
     cobre = plata = oro = 0
     for arg in args:
         arg = arg.lower().strip()
@@ -69,6 +61,11 @@ class Economia(commands.Cog):
             return
         cobre, plata, oro = resultado
 
+        # BUG CORREGIDO #1: antes podía enviar 0 monedas sin error
+        if cobre == 0 and plata == 0 and oro == 0:
+            await ctx.send("❌ La cantidad a enviar debe ser mayor a 0.")
+            return
+
         if miembro.id == ctx.author.id:
             await ctx.send("❌ No podés enviarte monedas a vos mismo.")
             return
@@ -94,9 +91,15 @@ class Economia(commands.Cog):
             await ctx.send("📭 No tenés transacciones registradas todavía.")
             return
         embed = discord.Embed(title="📜 Historial de transacciones", color=discord.Color.blurple())
+
+        # BUG CORREGIDO #2: faltaba 'compra_npc' en el dict, aparecía como 📌 genérico
         tipos_emoji = {
-            "transferencia": "💸", "admin_dar": "➕",
-            "admin_quitar": "➖", "compra": "🛒", "venta": "💰"
+            "transferencia": "💸",
+            "admin_dar":     "➕",
+            "admin_quitar":  "➖",
+            "compra":        "🛒",
+            "compra_npc":    "🧙",   # ← agregado
+            "venta":         "💰",
         }
         for r in registros:
             emoji = tipos_emoji.get(r["tipo"], "📌")
