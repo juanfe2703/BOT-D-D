@@ -39,14 +39,15 @@ async def agregar_item(jugador_id: str, item: str, cantidad: int = 1) -> str:
 
 
 async def quitar_item(jugador_id: str, item: str, cantidad: int = 1) -> tuple[bool, str]:
+    item_normalizado = item.strip().title()
     pool = await get_pool()
     async with pool.acquire() as conn:
         existente = await conn.fetchrow(
             "SELECT id, cantidad, item FROM inventario WHERE jugador_id=$1 AND LOWER(item)=LOWER($2)",
-            jugador_id, item.strip()
+            jugador_id, item_normalizado
         )
         if not existente:
-            return False, f"No tienes **{item}** en tu inventario."
+            return False, f"No tienes **{item_normalizado}** en tu inventario."
         if existente["cantidad"] < cantidad:
             return False, f"Solo tienes **{existente['cantidad']}x {existente['item']}**."
         if existente["cantidad"] == cantidad:

@@ -31,7 +31,18 @@ async def on_command_error(ctx, error):
         return
 
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Falta el argumento `{error.param.name}`. Usá `!ayuda` para ver cómo usar el comando.")
+        mensajes_param = {
+            "valor":    "❌ Falta el valor de HP. Usá `!hp +10` para curar o `!hp -5` para daño.",
+            "condicion":"❌ Falta la condición. Ej: `!condicion envenenado`",
+            "link":     "❌ Falta el link. Ej: `!ficha https://nivel20.com/...`",
+            "item":     "❌ Falta el nombre del ítem. Revisá `!ayuda`.",
+            "nombre":   "❌ Falta el nombre. Revisá `!ayuda`.",
+        }
+        msg = mensajes_param.get(
+            error.param.name,
+            "❌ Falta un argumento requerido. Usá `!ayuda` para ver cómo usar el comando."
+        )
+        await ctx.send(msg)
 
     elif isinstance(error, commands.BadArgument):
         await ctx.send("❌ Argumento inválido. Revisá el comando con `!ayuda`.")

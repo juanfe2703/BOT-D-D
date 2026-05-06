@@ -33,15 +33,13 @@
 
 ## 💰 Sistema monetario
 
-El sistema maneja tres denominaciones:
-
 | Moneda | Emoji | Equivalencia |
 |--------|-------|-------------|
 | Cobre  | 🟤    | base         |
 | Plata  | 🥈    | 1 plata = 100 cobres |
 | Oro    | 🥇    | 1 oro = 100 platas = 10.000 cobres |
 
-**Formato de montos en comandos:** `5o 3p 10c` (oro/plata/cobre, puedes omitir los que no uses)
+**Formato de montos:** `5o 3p 10c` (podés omitir los que no uses)
 
 ---
 
@@ -54,8 +52,6 @@ El sistema maneja tres denominaciones:
 | `!tirar d4 d6 d8` | Varias tiradas a la vez (máx. 5) |
 | `!ventaja [+mod]` | 2d20, toma el mayor |
 | `!desventaja [+mod]` | 2d20, toma el menor |
-
-Los críticos (20) y pifias (1) en d20 se marcan con ✨ y 💀.
 
 ---
 
@@ -76,8 +72,19 @@ Los críticos (20) y pifias (1) en d20 se marcan con ✨ y 💀.
 |---------|-------------|
 | `!inventario [@u]` | Ver inventario |
 | `!dar_item @u cantidad item` | Dar ítem a otro jugador |
-| `!tienda` | Ver productos disponibles |
-| `!comprar [cantidad] <item>` | Comprar de la tienda |
+
+> La tienda global fue reemplazada por el inventario de NPCs. Usá `!npc <nombre>` para ver qué vende cada NPC y `!comprar_npc <NPC> <ítem>` para comprar.
+
+---
+
+## 🧙 NPCs
+
+| Comando | Descripción |
+|---------|-------------|
+| `!npcs` | Ver todos los NPCs disponibles |
+| `!npc <nombre>` | Hablar con un NPC y ver su inventario |
+| `!comprar_npc <NPC> <ítem>` | Comprarle a un NPC |
+| `!comprar_npc <NPC> <cantidad> <ítem>` | Comprar varias unidades |
 
 ---
 
@@ -87,15 +94,20 @@ Cada jugador puede tener **múltiples personajes** y alternar entre ellos.
 
 | Comando | Descripción |
 |---------|-------------|
-| `!crear_personaje` | Crea un nuevo personaje (modal) |
+| `!crear_personaje` | Abre formulario de creación (pide HP, maná y ficha en segundo paso) |
 | `!personaje [@u]` | Ver ficha del personaje activo |
 | `!mis_personajes` | Listar todos tus personajes |
 | `!jugar_como <nombre>` | Cambiar personaje activo |
-| `!actualizar_personaje` | Editar personaje activo (modal) |
+| `!actualizar_personaje` | Editar datos del personaje activo |
 | `!ficha <url>` | Vincular ficha de Nivel20 |
-| `!hp +10` / `!hp -5` | Modificar HP del personaje activo |
-| `!condicion <estado>` | Agregar condición (envenenado, etc.) |
+| `!hp +10` / `!hp -5` | Curar o recibir daño |
+| `!hp_temp 8` | Agregar HP temporales (absorben daño antes que el HP real) |
+| `!mana +5` / `!mana -3` | Recuperar o gastar maná |
+| `!condicion <estado>` | Agregar condición (envenenado, paralizado, etc.) |
 | `!quitar_condicion <estado>` | Eliminar condición |
+
+### HP Temporales
+Los HP temporales funcionan como un escudo: el daño los consume primero. Si tenés 20/20 HP y recibís +8 temp, queda `20/20 (+8 temp)`. Al recibir 12 de daño, los 8 temp se absorben y solo bajás 4 de HP real → `16/20`.
 
 ---
 
@@ -107,16 +119,33 @@ Cada jugador puede tener **múltiples personajes** y alternar entre ellos.
 | `!admin_quitar @u 5o` | Quitar monedas |
 | `!admin_agregar_item @u N item` | Agregar ítem al inventario |
 | `!admin_quitar_item @u N item` | Quitar ítem del inventario |
-| `!tienda_agregar precio \| nombre \| desc \| stock` | Agregar producto |
-| `!tienda_quitar <nombre>` | Quitar producto |
 | `!admin_nivel @u N` | Cambiar nivel de personaje |
-| `!admin_set_hp @u max [actual]` | Configurar HP |
+| `!admin_set_hp @u max [actual] [mana_max] [mana_actual]` | Configurar HP y maná |
+| `!admin_hp_temp @u N` | Dar HP temporales a un jugador |
 | `!admin_xp @u cantidad` | Dar/quitar XP |
 | `!admin_condicion @u estado` | Aplicar condición |
 | `!admin_quitar_condicion @u estado` | Quitar condición |
 
-**Ejemplo tienda:**
+---
+
+## 🔐 Admin NPCs
+
+| Comando | Descripción |
+|---------|-------------|
+| `!npc_crear nombre \| desc \| img_url` | Crear NPC |
+| `!npc_editar <NPC> <campo> \| <valor>` | Editar campo del NPC |
+| `!npc_eliminar <nombre>` | Eliminar NPC |
+| `!npc_inv <nombre>` | Ver inventario completo del NPC |
+| `!npc_item_agregar NPC \| precio \| ítem \| [desc] \| [stock]` | Agregar ítem al NPC |
+| `!npc_items_agregar <NPC>` + líneas | Carga masiva de ítems |
+| `!npc_item_quitar NPC \| ítem` | Quitar ítem del NPC |
+| `!npc_lista` | Listar todos los NPCs con IDs internos |
+
+**Ejemplo crear NPC con inventario:**
 ```
-!tienda_agregar 5o | Espada Larga | Una espada de acero bien afilada | 10
-!tienda_agregar 2p 50c | Poción de Curación | Restaura 2d4+2 HP
+!npc_crear Gausto | El mejor cocinero del reino | https://i.imgur.com/xxx.png
+!npc_items_agregar Gausto
+3o | Estofado Real | Delicioso guiso de la casa | 20
+1o 5p | Pan de Centeno | Crujiente y esponjoso |
+2o | Vino Élfico || 10
 ```

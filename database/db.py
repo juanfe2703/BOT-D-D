@@ -34,18 +34,21 @@ async def init_db():
             );
 
             CREATE TABLE IF NOT EXISTS personajes (
-                id         SERIAL  PRIMARY KEY,
-                jugador_id TEXT    NOT NULL REFERENCES jugadores(id),
-                nombre     TEXT    NOT NULL,
-                nick       TEXT,
-                nivel      INTEGER DEFAULT 1,
-                clase      TEXT,
-                raza       TEXT,
-                link_ficha TEXT,
-                hp_max     INTEGER DEFAULT 0,
-                hp_actual  INTEGER DEFAULT 0,
-                xp         INTEGER DEFAULT 0,
-                activo     BOOLEAN DEFAULT TRUE,
+                id          SERIAL  PRIMARY KEY,
+                jugador_id  TEXT    NOT NULL REFERENCES jugadores(id),
+                nombre      TEXT    NOT NULL,
+                nick        TEXT,
+                nivel       INTEGER DEFAULT 1,
+                clase       TEXT,
+                raza        TEXT,
+                link_ficha  TEXT,
+                hp_max      INTEGER DEFAULT 0,
+                hp_actual   INTEGER DEFAULT 0,
+                hp_temporal INTEGER DEFAULT 0,
+                mana_max    INTEGER DEFAULT 0,
+                mana_actual INTEGER DEFAULT 0,
+                xp          INTEGER DEFAULT 0,
+                activo      BOOLEAN DEFAULT TRUE,
                 UNIQUE (jugador_id, nombre)
             );
 
@@ -106,3 +109,14 @@ async def init_db():
             );
         """)
     print("✅ Base de datos inicializada")
+
+    # Migraciones: agregar columnas nuevas si no existen (idempotente)
+    async with pool.acquire() as conn:
+        for col, tipo, default in [
+            ("hp_temporal", "INTEGER", "0"),
+            ("mana_max",    "INTEGER", "0"),
+            ("mana_actual", "INTEGER", "0"),
+        ]:
+            await conn.execute(f"""
+                ALTER TABLE personajes ADD COLUMN IF NOT EXISTS {col} {tipo} DEFAULT {default};
+            """)

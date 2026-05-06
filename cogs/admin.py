@@ -5,10 +5,7 @@ agrupados en un solo lugar.
 import discord
 from discord.ext import commands
 from services.economia_service import dar_monedas_admin, quitar_monedas_admin, formato_monedas
-from services.inventario_service import (
-    agregar_item, quitar_item,
-    agregar_producto_tienda, quitar_producto_tienda
-)
+from services.inventario_service import agregar_item, quitar_item
 from services.personaje_service import (
     obtener_personaje_activo, actualizar_personaje,
     agregar_condicion, quitar_condicion
@@ -112,70 +109,24 @@ class Admin(commands.Cog, name="Administración"):
         else:
             await ctx.send(f"❌ {msg}")
 
-    # ── tienda ────────────────────────────────────────────────────────────────
-
-    @commands.command(name="tienda_agregar",
-                      help="[ADMIN] Agrega un producto a la tienda. Ej: !tienda_agregar 5o 2p | Espada | Descripción | stock")
+    @commands.command(name="admin_hp_temp",
+                      help="[ADMIN] Da HP temporales a un jugador. Ej: !admin_hp_temp @u 8")
     @commands.has_permissions(administrator=True)
-    async def tienda_agregar(self, ctx, *args):
-        texto = " ".join(args)
-        partes = [p.strip() for p in texto.split("|")]
-
-        if len(partes) < 2:
-            await ctx.send(
-                "❌ Formato: `!tienda_agregar <precio> | <nombre> | [descripción] | [stock]`\n"
-                "Ejemplo: `!tienda_agregar 5o 2p | Espada Larga | Una espada de acero | 10`"
-            )
+    async def admin_hp_temp(self, ctx, miembro: discord.Member, valor: int):
+        from services.personaje_service import modificar_hp_temporal
+        if valor <= 0:
+            await ctx.send("❌ El valor debe ser mayor a 0.")
             return
-
-        precio_args = partes[0].split()
-        nombre      = partes[1]
-        descripcion = partes[2] if len(partes) > 2 else ""
-        stock_raw   = partes[3] if len(partes) > 3 else "-1"
-
-        if not nombre:
-            await ctx.send("❌ El nombre del producto no puede estar vacío.")
+        personaje = await obtener_personaje_activo(str(miembro.id))
+        if not personaje:
+            await ctx.send(f"❌ {miembro.mention} no tiene personaje activo.")
             return
-
-        resultado = _parsear_monedas(precio_args)
-        if resultado is None:
-            await ctx.send("❌ Precio inválido. Usá `5o`, `2p`, `10c`.")
-            return
-        cobre, plata, oro = resultado
-
-        # BUG CORREGIDO #3: avisar si el precio queda en 0 (probablemente error del admin)
-        if cobre == 0 and plata == 0 and oro == 0:
-            await ctx.send(
-                "⚠️ El precio quedó en **0**. Si es intencional, confirmá con "
-                "`!tienda_agregar 0c | <nombre>`. "
-                "Si no, revisá el formato del precio."
-            )
-            return
-
-        try:
-            stock = int(stock_raw)
-        except ValueError:
-            stock = -1
-
-        exito, msg = await agregar_producto_tienda(nombre, descripcion, cobre, plata, oro, stock)
-        if exito:
-            stock_txt = "ilimitado" if stock == -1 else str(stock)
-            await ctx.send(
-                f"✅ **{nombre.title()}** agregado a la tienda. "
-                f"Precio: {formato_monedas(oro, plata, cobre)} | Stock: {stock_txt}"
-            )
-        else:
-            await ctx.send(f"❌ {msg}")
-
-    @commands.command(name="tienda_quitar",
-                      help="[ADMIN] Elimina un producto de la tienda.")
-    @commands.has_permissions(administrator=True)
-    async def tienda_quitar(self, ctx, *, nombre: str):
-        exito, msg = await quitar_producto_tienda(nombre)
-        if exito:
-            await ctx.send(f"✅ {msg}")
-        else:
-            await ctx.send(f"❌ {msg}")
+        exito, personaje = await modificar_hp_temporal(str(miembro.id), valor)
+        hp_temp = personaje.get("hp_temporal", 0) or 0
+        await ctx.send(
+            f"🛡️ **{personaje['nombre']}** ({miembro.mention}) recibió **+{valor} HP temporales**. "
+            f"Total temporal: `{hp_temp}`."
+        )
 
     # ── personajes ────────────────────────────────────────────────────────────
 
@@ -194,18 +145,24 @@ class Admin(commands.Cog, name="Administración"):
         await ctx.send(f"✅ Nivel de **{personaje['nombre']}** ({miembro.mention}) actualizado a **{nivel}**.")
 
     @commands.command(name="admin_set_hp",
-                      help="[ADMIN] Establece el HP máximo y actual de un personaje.")
+                      help="[ADMIN] Establece el HP máximo/actual y maná de un personaje.")
     @commands.has_permissions(administrator=True)
-    async def admin_set_hp(self, ctx, miembro: discord.Member, hp_max: int, hp_actual: int = None):
+    async def admin_set_hp(self, ctx, miembro: discord.Member, hp_max: int, hp_actual: int = None,
+                           mana_max: int = None, mana_actual: int = None):
         personaje = await obtener_personaje_activo(str(miembro.id))
         if not personaje:
             await ctx.send(f"❌ {miembro.mention} no tiene personaje activo.")
             return
         if hp_actual is None:
             hp_actual = hp_max
-        await actualizar_personaje(str(miembro.id), hp_max=hp_max, hp_actual=hp_actual)
+        campos = {"hp_max": hp_max, "hp_actual": hp_actual}
+        if mana_max is not None:
+            campos["mana_max"] = mana_max
+            campos["mana_actual"] = mana_actual if mana_actual is not None else mana_max
+        await actualizar_personaje(str(miembro.id), **campos)
+        linea_mana = f" | Maná: `{campos.get('mana_actual', '—')}/{campos.get('mana_max', '—')}`" if mana_max else ""
         await ctx.send(
-            f"✅ HP de **{personaje['nombre']}** establecido a `{hp_actual}/{hp_max}`."
+            f"✅ HP de **{personaje['nombre']}** establecido a `{hp_actual}/{hp_max}`{linea_mana}."
         )
 
     @commands.command(name="admin_condicion",
@@ -241,22 +198,8 @@ class Admin(commands.Cog, name="Administración"):
         signo = "+" if xp > 0 else ""
         await ctx.send(f"✨ {miembro.mention} {signo}{xp} XP. Total: **{nuevo_xp} XP**")
 
-    # ── manejador de errores de permisos ──────────────────────────────────────
-    # BUG CORREGIDO #4: sin este handler, cuando alguien sin permisos usa un
-    # comando admin, Discord.py lanza CheckFailure en silencio y el bot no responde nada.
-
-    @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("🔒 No tenés permisos de administrador para usar ese comando.")
-        elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(
-                f"❌ Falta el argumento `{error.param.name}`.\n"
-                f"Usá `!ayuda` para ver el uso correcto."
-            )
-        elif isinstance(error, commands.BadArgument):
-            await ctx.send("❌ Argumento inválido. Revisá el comando con `!ayuda`.")
-        # No manejar otros errores acá para que los procese el handler global en main.py
+    # El manejo de errores (MissingPermissions, MissingRequiredArgument, BadArgument)
+    # se centraliza en el on_command_error de main.py para evitar dobles mensajes.
 
 
 async def setup(bot):

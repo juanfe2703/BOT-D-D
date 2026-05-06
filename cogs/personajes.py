@@ -3,18 +3,28 @@ from discord.ext import commands
 from services.personaje_service import (
     obtener_personaje_activo, obtener_personaje_por_nombre,
     listar_personajes, crear_personaje, actualizar_personaje,
-    cambiar_personaje_activo, modificar_hp,
+    cambiar_personaje_activo, modificar_hp, modificar_hp_temporal,
     agregar_condicion, quitar_condicion, obtener_condiciones
 )
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
-def _barra_hp(actual: int, maximo: int, largo: int = 10) -> str:
+def _barra_hp(actual: int, maximo: int, temporal: int = 0, largo: int = 10) -> str:
     if maximo <= 0:
         return "*(sin HP configurado)*"
     llenos = round(actual / maximo * largo)
-    return "█" * llenos + "░" * (largo - llenos) + f"  {actual}/{maximo}"
+    barra = "█" * llenos + "░" * (largo - llenos) + f"  {actual}/{maximo}"
+    if temporal > 0:
+        barra += f" (+{temporal} temp)"
+    return barra
+
+
+def _barra_mana(actual: int, maximo: int, largo: int = 10) -> str:
+    if maximo <= 0:
+        return None
+    llenos = round(actual / maximo * largo)
+    return "🔹" * llenos + "▪" * (largo - llenos) + f"  {actual}/{maximo}"
 
 
 async def _embed_personaje(personaje: dict, usuario: discord.User | discord.Member) -> discord.Embed:
@@ -29,9 +39,16 @@ async def _embed_personaje(personaje: dict, usuario: discord.User | discord.Memb
     embed.add_field(name="🌿 Raza",   value=personaje.get("raza")  or "—", inline=True)
     embed.add_field(name="⭐ Nivel",  value=str(personaje.get("nivel", 1)), inline=True)
 
-    hp_max = personaje.get("hp_max", 0)
-    hp_act = personaje.get("hp_actual", 0)
-    embed.add_field(name="❤️ HP", value=_barra_hp(hp_act, hp_max), inline=False)
+    hp_max  = personaje.get("hp_max", 0)
+    hp_act  = personaje.get("hp_actual", 0)
+    hp_temp = personaje.get("hp_temporal", 0) or 0
+    embed.add_field(name="❤️ HP", value=_barra_hp(hp_act, hp_max, hp_temp), inline=False)
+
+    mana_max = personaje.get("mana_max", 0) or 0
+    mana_act = personaje.get("mana_actual", 0) or 0
+    barra_mana = _barra_mana(mana_act, mana_max)
+    if barra_mana:
+        embed.add_field(name="💙 Maná", value=barra_mana, inline=False)
 
     xp = personaje.get("xp", 0)
     if xp:
@@ -84,9 +101,65 @@ class CrearPersonajeModal(discord.ui.Modal, title="Crear Personaje"):
         if exito:
             personaje = await obtener_personaje_activo(user_id)
             embed = await _embed_personaje(personaje, interaction.user)
-            await interaction.response.send_message("✅ ¡Personaje creado!", embed=embed)
+            # Pedir HP y ficha en un segundo paso
+            view = _BotonModal(
+                ConfigurarHPModal(personaje["id"]),
+                "⚙️ Configurar HP y ficha",
+                discord.ButtonStyle.secondary
+            )
+            await interaction.response.send_message(
+                "✅ ¡Personaje creado! Configurá tu HP y ficha (opcional):",
+                embed=embed,
+                view=view
+            )
         else:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+
+class ConfigurarHPModal(discord.ui.Modal, title="Configurar HP y Ficha"):
+    hp_max   = discord.ui.TextInput(label="HP Máximo", placeholder="Ej: 30", max_length=5)
+    mana_max = discord.ui.TextInput(label="Maná Máximo (opcional)", placeholder="Ej: 20", max_length=5, required=False)
+    link     = discord.ui.TextInput(
+        label="Link de ficha Nivel20 (opcional)",
+        placeholder="https://nivel20.com/...",
+        max_length=300,
+        required=False
+    )
+
+    def __init__(self, personaje_id: int | None = None):
+        super().__init__()
+        self.personaje_id = personaje_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            hp = int(self.hp_max.value)
+            if hp <= 0:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message("❌ El HP debe ser un número mayor a 0.", ephemeral=True)
+            return
+
+        mana = 0
+        if self.mana_max.value:
+            try:
+                mana = int(self.mana_max.value)
+            except ValueError:
+                await interaction.response.send_message("❌ El maná debe ser un número.", ephemeral=True)
+                return
+
+        link = self.link.value.strip() or None
+        if link and not link.startswith(("http://", "https://")):
+            await interaction.response.send_message("❌ El link debe empezar con `https://`.", ephemeral=True)
+            return
+
+        campos = {"hp_max": hp, "hp_actual": hp, "mana_max": mana, "mana_actual": mana}
+        if link:
+            campos["link_ficha"] = link
+
+        await actualizar_personaje(str(interaction.user.id), **campos)
+        personaje = await obtener_personaje_activo(str(interaction.user.id))
+        embed = await _embed_personaje(personaje, interaction.user)
+        await interaction.response.send_message("✅ ¡Configuración guardada!", embed=embed)
 
 
 class ActualizarPersonajeModal(discord.ui.Modal, title="Actualizar Personaje"):
@@ -124,7 +197,16 @@ class ActualizarPersonajeModal(discord.ui.Modal, title="Actualizar Personaje"):
         if exito:
             personaje = await obtener_personaje_activo(str(interaction.user.id))
             embed = await _embed_personaje(personaje, interaction.user)
-            await interaction.response.send_message("✅ Personaje actualizado.", embed=embed)
+            view = _BotonModal(
+                ConfigurarHPModal(),
+                "⚙️ Actualizar HP y ficha",
+                discord.ButtonStyle.secondary
+            )
+            await interaction.response.send_message(
+                "✅ Personaje actualizado. ¿Querés actualizar HP, maná o ficha también?",
+                embed=embed,
+                view=view
+            )
         else:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
 
@@ -150,8 +232,14 @@ class Personajes(commands.Cog):
     @commands.command(name="crear_personaje",
                       help="Abre el formulario para crear un nuevo personaje.")
     async def crear_personaje_cmd(self, ctx):
-        view = _BotonModal(CrearPersonajeModal(), "📝 Abrir formulario", discord.ButtonStyle.primary)
-        await ctx.send("Haz clic para crear tu personaje:", view=view)
+        # Los modales solo se pueden abrir desde una interacción (botón/slash).
+        # Enviamos un mensaje con un botón que abre el modal inmediatamente.
+        view = _BotonModal(CrearPersonajeModal(), "📝 Crear personaje", discord.ButtonStyle.primary)
+        await ctx.send(
+            f"{ctx.author.mention} Hacé clic para abrir el formulario de creación:",
+            view=view,
+            delete_after=120  # se auto-elimina después de 2 min
+        )
 
     @commands.command(name="actualizar_personaje",
                       help="Edita los datos de tu personaje activo.")
@@ -223,22 +311,74 @@ class Personajes(commands.Cog):
         try:
             delta = int(valor)
         except ValueError:
-            await ctx.send("❌ Usá `!hp +10` o `!hp -5`.")
+            await ctx.send("❌ Usá `!hp +10` para curar o `!hp -5` para recibir daño.")
             return
         exito, personaje = await modificar_hp(str(ctx.author.id), delta)
         if not exito:
             await ctx.send("❌ No tienes personaje activo.")
             return
-        barra = _barra_hp(personaje["hp_actual"], personaje["hp_max"])
-        signo = "+" if delta > 0 else ""
-        color = discord.Color.green() if delta > 0 else discord.Color.red()
-        embed = discord.Embed(
+        hp_temp = personaje.get("hp_temporal", 0) or 0
+        barra   = _barra_hp(personaje["hp_actual"], personaje["hp_max"], hp_temp)
+        signo   = "+" if delta > 0 else ""
+        color   = discord.Color.green() if delta > 0 else discord.Color.red()
+        embed   = discord.Embed(
             title=f"❤️ HP de {personaje['nombre']}",
             description=f"`{barra}`\n*Cambio: {signo}{delta}*",
             color=color
         )
         if personaje["hp_actual"] == 0:
             embed.add_field(name="💀", value="¡El personaje está a 0 HP!", inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="hp_temp",
+                      help="Agrega HP temporales a tu personaje. Ej: !hp_temp 8")
+    async def hp_temp_cmd(self, ctx, valor: int):
+        if valor <= 0:
+            await ctx.send("❌ El valor debe ser mayor a 0.")
+            return
+        exito, personaje = await modificar_hp_temporal(str(ctx.author.id), valor)
+        if not exito:
+            await ctx.send("❌ No tienes personaje activo.")
+            return
+        hp_temp = personaje.get("hp_temporal", 0) or 0
+        barra   = _barra_hp(personaje["hp_actual"], personaje["hp_max"], hp_temp)
+        embed   = discord.Embed(
+            title=f"🛡️ HP temporales — {personaje['nombre']}",
+            description=f"`{barra}`\n*+{valor} HP temporales otorgados*",
+            color=discord.Color.blurple()
+        )
+        embed.set_footer(text="Los HP temporales absorben daño primero. No se curan con !hp.")
+        await ctx.send(embed=embed)
+
+    @commands.command(name="mana",
+                      help="Modifica tu maná. Ej: !mana -3  o  !mana +5")
+    async def mana_cmd(self, ctx, valor: str):
+        try:
+            delta = int(valor)
+        except ValueError:
+            await ctx.send("❌ Usá `!mana +5` para recuperar o `!mana -3` para gastar.")
+            return
+        personaje = await obtener_personaje_activo(str(ctx.author.id))
+        if not personaje:
+            await ctx.send("❌ No tienes personaje activo.")
+            return
+        mana_max = personaje.get("mana_max", 0) or 0
+        if mana_max == 0:
+            await ctx.send("❌ Tu personaje no tiene maná configurado. Pedile a un admin `!admin_set_hp`.")
+            return
+        mana_act   = personaje.get("mana_actual", 0) or 0
+        nuevo_mana = max(0, min(mana_max, mana_act + delta))
+        exito, msg = await actualizar_personaje(str(ctx.author.id), mana_actual=nuevo_mana)
+        barra  = _barra_mana(nuevo_mana, mana_max)
+        signo  = "+" if delta > 0 else ""
+        color  = discord.Color.blue() if delta > 0 else discord.Color.dark_blue()
+        embed  = discord.Embed(
+            title=f"💙 Maná de {personaje['nombre']}",
+            description=f"`{barra}`\n*Cambio: {signo}{delta}*",
+            color=color
+        )
+        if nuevo_mana == 0:
+            embed.add_field(name="🔵", value="¡Sin maná!", inline=False)
         await ctx.send(embed=embed)
 
     # ── condiciones ───────────────────────────────────────────────────────────

@@ -76,7 +76,8 @@ async def actualizar_personaje(jugador_id: str, nombre_personaje: str | None = N
     if not personaje:
         return False, "No se encontró el personaje."
 
-    campos_validos = {"nombre", "nick", "nivel", "clase", "raza", "link_ficha", "hp_max", "hp_actual", "xp"}
+    campos_validos = {"nombre", "nick", "nivel", "clase", "raza", "link_ficha",
+                      "hp_max", "hp_actual", "hp_temporal", "mana_max", "mana_actual", "xp"}
     actualizaciones = {k: v for k, v in campos.items() if k in campos_validos and v is not None}
     if not actualizaciones:
         return False, "No se especificó ningún campo válido."
@@ -116,18 +117,56 @@ async def cambiar_personaje_activo(jugador_id: str, nombre: str) -> tuple[bool, 
 # ─── HP ─────────────────────────────────────────────────────────────────────
 
 async def modificar_hp(jugador_id: str, delta: int) -> tuple[bool, dict]:
-    """Suma o resta HP al personaje activo. Nunca baja de 0 ni sube de hp_max."""
+    """
+    Suma o resta HP al personaje activo.
+    - Daño (delta < 0): reduce primero hp_temporal, luego hp_actual. Nunca baja de 0.
+    - Curación (delta > 0): solo cura hp_actual hasta hp_max. No toca hp_temporal.
+    - Para agregar HP temporales usar modificar_hp_temporal().
+    """
     personaje = await obtener_personaje_activo(jugador_id)
     if not personaje:
         return False, {}
-    nuevo_hp = max(0, min(personaje["hp_max"], personaje["hp_actual"] + delta))
+
+    hp_actual   = personaje.get("hp_actual", 0)
+    hp_max      = personaje.get("hp_max", 0)
+    hp_temporal = personaje.get("hp_temporal", 0)
+
+    if delta < 0:
+        # Daño: primero absorbe HP temporales
+        dano = abs(delta)
+        if hp_temporal > 0:
+            absorbe = min(hp_temporal, dano)
+            hp_temporal -= absorbe
+            dano -= absorbe
+        hp_actual = max(0, hp_actual - dano)
+    else:
+        # Curación: solo hasta hp_max, no afecta temporales
+        hp_actual = min(hp_max, hp_actual + delta)
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE personajes SET hp_actual=$1 WHERE id=$2",
-            nuevo_hp, personaje["id"]
+            "UPDATE personajes SET hp_actual=$1, hp_temporal=$2 WHERE id=$3",
+            hp_actual, hp_temporal, personaje["id"]
         )
-    personaje["hp_actual"] = nuevo_hp
+    personaje["hp_actual"]   = hp_actual
+    personaje["hp_temporal"] = hp_temporal
+    return True, personaje
+
+
+async def modificar_hp_temporal(jugador_id: str, valor: int) -> tuple[bool, dict]:
+    """Establece (o suma) HP temporales. No se curan — desaparecen con el daño."""
+    personaje = await obtener_personaje_activo(jugador_id)
+    if not personaje:
+        return False, {}
+    nuevo_temp = max(0, (personaje.get("hp_temporal", 0) or 0) + valor)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE personajes SET hp_temporal=$1 WHERE id=$2",
+            nuevo_temp, personaje["id"]
+        )
+    personaje["hp_temporal"] = nuevo_temp
     return True, personaje
 
 
